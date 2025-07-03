@@ -16,7 +16,6 @@ using UnityEngine;
 #if VRC_SDK_VRCSDK3 && !UDON
 using VRC.SDK3.Avatars.Components;
 using VRC.SDKBase;
-using static UnityEditor.Progress;
 
 #endif
 using AnimatorController = UnityEditor.Animations.AnimatorController;
