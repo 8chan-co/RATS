@@ -15,6 +15,8 @@ using UnityEditor.Animations;
 using UnityEngine;
 using ReorderableList = UnityEditorInternal.ReorderableList;
 using HarmonyLib;
+using JetBrains.Annotations;
+
 #if VRC_SDK_VRCSDK3 && !UDON
 using VRC.SDK3.Avatars.Components;
 #endif
@@ -665,7 +667,7 @@ namespace Razgriz.RATS
                 AccessTools.Method(AccessTools.TypeByName("UnityEditor.Graphs.AnimationStateMachine.GraphGUI"), "HandleContextMenu"),
             };
 
-            private static TransitionMenuEntry[] Entries = {
+            private static ITransitionMenuEntry[] Entries = {
                 new ReverseMenuEntry(),
                 new RedirectMenuEntry(),
                 new ReplicateMenuEntry()
@@ -700,7 +702,7 @@ namespace Razgriz.RATS
                     isAnyState && target.state != null && IsPointNearLine(current, stateMachine.anyStatePosition, target.position, 20))
                 {
                     GenericMenu replaceMenu = new GenericMenu();
-                    foreach (TransitionMenuEntry menuEntry in Entries)
+                    foreach (ITransitionMenuEntry menuEntry in Entries)
                     {
                         if (menuEntry.ShouldEnable(graph))
                         {
@@ -720,10 +722,10 @@ namespace Razgriz.RATS
             }
             
             [HarmonyTranspiler]
+            [UsedImplicitly]
             static IEnumerable<CodeInstruction> Transpiler(object __instance, IEnumerable<CodeInstruction> instructions, ILGenerator generator)
             {
                 var instructionList = instructions.ToList();
-                int genericMenuLocalIndex = -1;
                 for (var i = 0; i < instructionList.Count; i++)
                 {
                     if (instructionList[i].opcode == OpCodes.Callvirt && (MethodInfo)instructionList[i].operand == AccessTools.Method(typeof(GenericMenu), "ShowAsContext"))
@@ -740,7 +742,7 @@ namespace Razgriz.RATS
                 return instructionList; 
             }
 
-            interface TransitionMenuEntry
+            interface ITransitionMenuEntry
             {
                 string GetEntryName();
                 bool ShouldCheck(object data) => false;
@@ -748,7 +750,7 @@ namespace Razgriz.RATS
                 void Callback(object graph, object data);
             }
             
-            class ReverseMenuEntry : TransitionMenuEntry
+            class ReverseMenuEntry : ITransitionMenuEntry
             {
                 public string GetEntryName() => "Reverse";
                 public bool ShouldEnable(object data)
@@ -789,7 +791,7 @@ namespace Razgriz.RATS
                 }
             }
             
-            class RedirectMenuEntry : TransitionMenuEntry
+            class RedirectMenuEntry : ITransitionMenuEntry
             {
                 public string GetEntryName() => "Redirect";
                 public bool ShouldCheck(object data) => AnimatorWindowState.redirectTransition != null;
@@ -809,7 +811,7 @@ namespace Razgriz.RATS
                 }
             }
             
-            class ReplicateMenuEntry : TransitionMenuEntry
+            class ReplicateMenuEntry : ITransitionMenuEntry
             {
                 public string GetEntryName() => "Replicate";
                 public bool ShouldCheck(object data) => AnimatorWindowState.replicateTransition != null;

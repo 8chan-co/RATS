@@ -49,16 +49,16 @@ public class RATSMultiEditor : EditorWindow
 
         [HarmonyPrefix]
         [UsedImplicitly]
-        private static void OnGraphGUI(GraphGUI instance)
+        private static void OnGraphGUI(GraphGUI __instance)
         {
-            if (graphGUI == instance)
+            if (graphGUI == __instance)
             {
                 return;
             }
 
-            graphGUI = instance;
+            graphGUI = __instance;
 
-            tool = AccessTools.Property(AnimationStateMachineGraphGUI, "tool").GetValue(instance) as EditorWindow;
+            tool = AccessTools.Property(AnimationStateMachineGraphGUI, "tool").GetValue(__instance) as EditorWindow;
 
             controller = AccessTools.Property(AccessTools.TypeByName("UnityEditor.Graphs.AnimatorControllerTool"), "animatorController").GetValue(tool) as AnimatorController;
 
