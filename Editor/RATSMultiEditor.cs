@@ -4,6 +4,8 @@ using System.Linq;
 using System.Reflection;
 #if RATS_HARMONY
 using HarmonyLib;
+using JetBrains.Annotations;
+
 #endif
 using Razgriz.RATS;
 using UnityEditor;
@@ -14,6 +16,8 @@ using UnityEngine;
 #if VRC_SDK_VRCSDK3 && !UDON
 using VRC.SDK3.Avatars.Components;
 using VRC.SDKBase;
+using static UnityEditor.Progress;
+
 #endif
 using AnimatorController = UnityEditor.Animations.AnimatorController;
 using AnimatorControllerParameter = UnityEngine.AnimatorControllerParameter;
@@ -30,36 +34,45 @@ public class RATSMultiEditor : EditorWindow
 #endif
     private static AnimatorController controller;
     private static AnimatorStateMachine stateMachine;
-    private static object tool;
-    private static object graphGUI;
-    
+    private static EditorWindow tool;
+    private static GraphGUI graphGUI;
+
 #if RATS_HARMONY
     [HarmonyPatch]
     [HarmonyPriority(Priority.Low)]
     private class GetControllerPatch
     {
+        private static readonly Type AnimationStateMachineGraphGUI = AccessTools.TypeByName("UnityEditor.Graphs.AnimationStateMachine.GraphGUI");
+
         [HarmonyTargetMethod]
-        static MethodBase TargetMethod() => AccessTools.Method(AccessTools.TypeByName("UnityEditor.Graphs.AnimationStateMachine.GraphGUI"), "OnGraphGUI");
-        
+        [UsedImplicitly]
+        private static MethodBase TargetMethod() => AccessTools.Method(AnimationStateMachineGraphGUI, "OnGraphGUI");
+
         [HarmonyPrefix]
-        static void OnGraphGUI(object __instance)
+        [UsedImplicitly]
+        private static void OnGraphGUI(GraphGUI instance)
         {
-            if (graphGUI == __instance) return;
-            graphGUI = __instance;
-            tool = AccessTools
-                .Method(AccessTools.TypeByName("UnityEditor.Graphs.AnimationStateMachine.GraphGUI"), "get_tool")
-                .Invoke(__instance, Array.Empty<object>());
-            controller = (AnimatorController)AccessTools.Method(AccessTools.TypeByName("UnityEditor.Graphs.AnimatorControllerTool"), "get_animatorController").Invoke(tool, Array.Empty<object>());
-            stateMachine = (AnimatorStateMachine)AccessTools.Method(AccessTools.TypeByName("UnityEditor.Graphs.AnimationStateMachine.GraphGUI"), "get_activeStateMachine").Invoke(graphGUI, Array.Empty<object>());
+            if (graphGUI == instance)
+            {
+                return;
+            }
+
+            graphGUI = instance;
+
+            tool = AccessTools.Property(AnimationStateMachineGraphGUI, "tool").GetValue(instance) as EditorWindow;
+
+            controller = AccessTools.Property(AccessTools.TypeByName("UnityEditor.Graphs.AnimatorControllerTool"), "animatorController").GetValue(tool) as AnimatorController;
+
+            stateMachine = AccessTools.Property(AnimationStateMachineGraphGUI, "activeStateMachine").GetValue(graphGUI) as AnimatorStateMachine;
         }
     }
 #endif
-    
+
     Object[] selectionCache = Array.Empty<Object>();
     private void Update()
     {
         Object[] oldSelection = selectionCache;
-        selectionCache = Selection.objects; 
+        selectionCache = Selection.objects;
         if (oldSelection.Length != selectionCache.Length)
         {
             Repaint();
@@ -90,7 +103,7 @@ public class RATSMultiEditor : EditorWindow
 #endif
         // Draw the tabs
         selectedTab = GUILayout.Toolbar(selectedTab, tabNames);
-        
+
         // Draw the appropriate content based on selected tab
         switch (selectedTab)
         {
@@ -107,11 +120,11 @@ public class RATSMultiEditor : EditorWindow
 #endif
         }
     }
-    
+
     private void DrawStatesTab()
     {
         List<AnimatorState> states = Selection.objects.Where(x => x != null && x is AnimatorState).Cast<AnimatorState>().ToList();
-        
+
         if (states.Count == 0)
         {
             GUILayout.Label("Please select one or more states to start editing.", EditorStyles.centeredGreyMiniLabel);
@@ -119,10 +132,10 @@ public class RATSMultiEditor : EditorWindow
         }
 
         if (controller == null) return;
-        
+
         AnimatorControllerParameter[] parameters = controller.parameters;
         string[] paramNames = parameters.Where(p => p.type == AnimatorControllerParameterType.Float).Select(p => p.name).ToArray();
-        
+
         // Motion field
         using (new GUILayout.HorizontalScope())
         {
@@ -139,7 +152,7 @@ public class RATSMultiEditor : EditorWindow
                 });
             }
         }
-        
+
         // Speed field
         using (new GUILayout.HorizontalScope())
         {
@@ -249,7 +262,7 @@ public class RATSMultiEditor : EditorWindow
             {
                 bool sharedMirrorParameter = states.All(x => x.mirrorParameter == states[0].mirrorParameter);
                 string currentMirrorParameter = sharedMirrorParameter ? states[0].mirrorParameter : "--";
-                
+
                 int currentMirrorIndex = Array.FindIndex(paramNames, p => p == currentMirrorParameter);
                 int newMirrorIndex = EditorGUILayout.Popup(currentMirrorIndex, paramNames);
                 if (newMirrorIndex != currentMirrorIndex)
@@ -265,7 +278,7 @@ public class RATSMultiEditor : EditorWindow
             {
                 bool sharedMirrorEnabled = states.All(x => x.mirror == states[0].mirror);
                 bool currentMirrorEnabled = sharedMirrorEnabled ? states[0].mirror : false;
-                
+
                 bool newMirror = EditorGUILayout.Toggle(currentMirrorEnabled);
                 if (newMirror != currentMirrorEnabled)
                 {
@@ -287,7 +300,7 @@ public class RATSMultiEditor : EditorWindow
                 });
             }
         }
-      
+
         // Cycle Offset field
         using (new GUILayout.HorizontalScope())
         {
@@ -298,7 +311,7 @@ public class RATSMultiEditor : EditorWindow
             {
                 bool sharedCycleOffsetParameter = states.All(x => x.cycleOffsetParameter == states[0].cycleOffsetParameter);
                 string currentCycleOffsetParameter = sharedCycleOffsetParameter ? states[0].cycleOffsetParameter : "--";
-                
+
                 int currentCycleOffsetIndex = Array.FindIndex(paramNames, p => p == currentCycleOffsetParameter);
                 int newCycleOffsetIndex = EditorGUILayout.Popup(currentCycleOffsetIndex, paramNames);
                 if (newCycleOffsetIndex != currentCycleOffsetIndex)
@@ -314,7 +327,7 @@ public class RATSMultiEditor : EditorWindow
             {
                 bool sharedCycleOffset = states.All(x => x.cycleOffset == states[0].cycleOffset);
                 float currentCycleOffset = sharedCycleOffset ? states[0].cycleOffset : 0;
-                
+
                 if (sharedCycleOffset)
                 {
                     float newCycleOffset = EditorGUILayout.FloatField(currentCycleOffset);
@@ -365,61 +378,61 @@ public class RATSMultiEditor : EditorWindow
         public AnimatorStateTransition transition;
         public int index;
     }
-    
+
     struct TargetCondition
     {
         public AnimatorCondition condition;
-        public List<(AnimatorStateTransition, int)> references;
+        public List<(AnimatorStateTransition transition, int index)> references;
     }
 
     private ReorderableList conditions;
     private void DrawTransitionsTab()
     {
         List<AnimatorStateTransition> transitions = Selection.objects.Where(x => x != null && x is AnimatorStateTransition).Cast<AnimatorStateTransition>().ToList();
-        
+
         if (transitions.Count == 0)
         {
             GUILayout.Label("Please select one or more transitions to start editing.", EditorStyles.centeredGreyMiniLabel);
             return;
         }
-        
+
         // Has Exit Time
-        DrawBoolField(transitions, 
+        DrawBoolField(transitions,
             transition => transition.hasExitTime,
-            (transition, value) => transition.hasExitTime = value, 
+            (transition, value) => transition.hasExitTime = value,
             "Has Exit Time");
-        
+
         // Exit Time
         DrawFloatField(transitions,
             transition => transition.exitTime,
             (transition, value) => transition.exitTime = value,
             "Exit Time");
-        
+
         // Fixed Duration
         DrawBoolField(transitions,
             transition => transition.hasFixedDuration,
             (transition, value) => transition.hasFixedDuration = value,
             "Fixed Duration");
-        
+
         // Transition Duration
         DrawFloatField(transitions,
             transition => transition.duration,
             (transition, value) => transition.duration = value,
             "Transition Duration");
-        
+
         // Transition Offset
         DrawFloatField(transitions,
             transition => transition.offset,
             (transition, value) => transition.offset = value,
             "Transition Offset");
-        
+
         // Interruption Source
         using (new GUILayout.HorizontalScope())
         {
             EditorGUILayout.LabelField("Interruption Source", GUILayout.Width(350f));
             bool sharedValue = transitions.All(x => x.interruptionSource == transitions[0].interruptionSource);
             TransitionInterruptionSource currentValue = sharedValue ? transitions[0].interruptionSource : TransitionInterruptionSource.None;
-            TransitionInterruptionSource newValue = (TransitionInterruptionSource) EditorGUILayout.EnumPopup(currentValue);
+            TransitionInterruptionSource newValue = (TransitionInterruptionSource)EditorGUILayout.EnumPopup(currentValue);
             if (newValue != currentValue)
             {
                 transitions.ForEach(x =>
@@ -441,10 +454,10 @@ public class RATSMultiEditor : EditorWindow
                 (transition, value) => transition.canTransitionToSelf = value,
                 "Can Transition To Self");
         }
-        
-        
+
+
         List<TargetCondition> sharedConditions = new List<TargetCondition>();
-        
+
         var conditionLists = transitions.Select(t => (
             t.conditions.ToList().Zip(Enumerable.Range(0, t.conditions.Length), (c, i) => new SourceCondition
             {
@@ -452,8 +465,8 @@ public class RATSMultiEditor : EditorWindow
                 transition = t,
                 index = i
             }).ToList())).ToList();
-        
-        void ExtractConditions(List<List<SourceCondition>> conditionListList, List<TargetCondition> result, 
+
+        void ExtractConditions(List<List<SourceCondition>> conditionListList, List<TargetCondition> result,
             Func<AnimatorCondition, AnimatorCondition, bool> matchFunc,
             Func<AnimatorCondition, AnimatorCondition> transformFunc)
         {
@@ -472,10 +485,10 @@ public class RATSMultiEditor : EditorWindow
                 {
                     condition = transformFunc(checkCondition),
                     references = conditionListList.Select(conditions =>
-                            {
-                                var sourceCondition = conditions.First(c => matchFunc(checkCondition, c.condition));
-                                return (sourceCondition.transition, sourceCondition.index);
-                            }).ToList()
+                    {
+                        var sourceCondition = conditions.First(c => matchFunc(checkCondition, c.condition));
+                        return (sourceCondition.transition, sourceCondition.index);
+                    }).ToList()
                 });
 
                 // Remove from all transitions (remove all that match all three properties)
@@ -488,7 +501,7 @@ public class RATSMultiEditor : EditorWindow
         }
 
         // Check in order of specificity
-        ExtractConditions(conditionLists, sharedConditions, 
+        ExtractConditions(conditionLists, sharedConditions,
             (c1, c2) => c1.parameter == c2.parameter && c1.mode == c2.mode && c1.threshold == c2.threshold,
             c => new AnimatorCondition()
             {
@@ -504,7 +517,7 @@ public class RATSMultiEditor : EditorWindow
                 parameter = c.parameter,
                 mode = c.mode,
             });
-        
+
         ExtractConditions(conditionLists, sharedConditions,
             (c1, c2) => c1.parameter == c2.parameter && c1.threshold == c2.threshold,
             c => new AnimatorCondition()
@@ -520,18 +533,18 @@ public class RATSMultiEditor : EditorWindow
                 parameter = c.parameter
             });
 
-        
+
         conditions ??= new ReorderableList(sharedConditions, typeof(AnimatorCondition), false, true, true, true);
         conditions.list = sharedConditions;
         conditions.drawElementCallback = (Rect rect, int index, bool isActive, bool isFocused) =>
         {
             if (controller == null) return;
-            
+
             AnimatorCondition condition = sharedConditions[index].condition;
             Rect paramRect = new Rect(rect.x, rect.y + 2, rect.width * 0.4f, EditorGUIUtility.singleLineHeight);
             Rect modeRect = new Rect(rect.x + rect.width * 0.42f, rect.y + 2, rect.width * 0.3f, EditorGUIUtility.singleLineHeight);
             Rect valueRect = new Rect(rect.x + rect.width * 0.74f, rect.y + 2, rect.width * 0.26f, EditorGUIUtility.singleLineHeight);
-            
+
             Rect doubleRect = new Rect(rect.x + rect.width * 0.42f, rect.y + 2, rect.width * 0.58f, EditorGUIUtility.singleLineHeight);
 
             // Get available parameters from the animator
@@ -574,7 +587,7 @@ public class RATSMultiEditor : EditorWindow
                             var (transition, index) = x;
                             Undo.RegisterCompleteObjectUndo(transition, "Modify Transition Conditions");
                             var conditions = transition.conditions;
-                            conditions[index].mode = new [] {AnimatorConditionMode.If, AnimatorConditionMode.IfNot}[newBoolIndex];
+                            conditions[index].mode = new[] { AnimatorConditionMode.If, AnimatorConditionMode.IfNot }[newBoolIndex];
                             transition.conditions = conditions;
                         });
                     }
@@ -590,15 +603,15 @@ public class RATSMultiEditor : EditorWindow
                             var (transition, index) = x;
                             Undo.RegisterCompleteObjectUndo(transition, "Modify Transition Conditions");
                             var conditions = transition.conditions;
-                            conditions[index].mode = new [] {AnimatorConditionMode.Greater, AnimatorConditionMode.Less}[newFloatIndex];
+                            conditions[index].mode = new[] { AnimatorConditionMode.Greater, AnimatorConditionMode.Less }[newFloatIndex];
                             transition.conditions = conditions;
                         });
                     }
                     break;
                 case AnimatorControllerParameterType.Int:
                     string[] intStrings = { "Greater", "Less", "Equals", "NotEqual" };
-                    int currentIntIndex = condition.mode == AnimatorConditionMode.Greater ? 0 : 
-                            condition.mode == AnimatorConditionMode.Less ? 1 : 
+                    int currentIntIndex = condition.mode == AnimatorConditionMode.Greater ? 0 :
+                            condition.mode == AnimatorConditionMode.Less ? 1 :
                             condition.mode == AnimatorConditionMode.Equals ? 2 : 3;
                     var newIntIndex = EditorGUI.Popup(modeRect, currentIntIndex, intStrings);
                     if (currentIntIndex != newIntIndex)
@@ -608,25 +621,25 @@ public class RATSMultiEditor : EditorWindow
                             var (transition, index) = x;
                             Undo.RegisterCompleteObjectUndo(transition, "Modify Transition Conditions");
                             var conditions = transition.conditions;
-                            conditions[index].mode = new [] {AnimatorConditionMode.Greater, AnimatorConditionMode.Less, AnimatorConditionMode.Equals, AnimatorConditionMode.NotEqual}[newIntIndex];
+                            conditions[index].mode = new[] { AnimatorConditionMode.Greater, AnimatorConditionMode.Less, AnimatorConditionMode.Equals, AnimatorConditionMode.NotEqual }[newIntIndex];
                             transition.conditions = conditions;
                         });
                     }
                     break;
             }
-            
-            
+
+
             // Threshold field (only show for modes that need it)
             if ((parameters[newParamIndex].type == AnimatorControllerParameterType.Float ||
                 parameters[newParamIndex].type == AnimatorControllerParameterType.Int) &&
-                condition.mode != AnimatorConditionMode.If && 
+                condition.mode != AnimatorConditionMode.If &&
                 condition.mode != AnimatorConditionMode.IfNot)
             {
                 var newThreshold = EditorGUI.FloatField(valueRect, condition.threshold);
                 if (newThreshold != condition.threshold)
                 {
                     sharedConditions[index].references.ForEach((x) =>
-                    { 
+                    {
                         var (transition, index) = x;
                         Undo.RegisterCompleteObjectUndo(transition, "Modify Transition Conditions");
                         var conditions = transition.conditions;
@@ -636,13 +649,15 @@ public class RATSMultiEditor : EditorWindow
                 }
             }
         };
-        
+
         conditions.elementHeight = EditorGUIUtility.singleLineHeight + 2;
-        conditions.drawHeaderCallback = (Rect rect) => {
+        conditions.drawHeaderCallback = (Rect rect) =>
+        {
             EditorGUI.LabelField(rect, "Conditions");
         };
-        
-        conditions.onAddCallback = (ReorderableList list) => {
+
+        conditions.onAddCallback = (ReorderableList list) =>
+        {
             transitions.ForEach(t =>
             {
                 Undo.RegisterCompleteObjectUndo(t, "Modify Transition Conditions");
@@ -657,7 +672,7 @@ public class RATSMultiEditor : EditorWindow
                 }
                 else
                 {
-                    
+
                     t.conditions = t.conditions.Append(new AnimatorCondition()
                     {
                         mode = controller.parameters[0].type == AnimatorControllerParameterType.Bool ? AnimatorConditionMode.If : AnimatorConditionMode.Greater,
@@ -669,23 +684,16 @@ public class RATSMultiEditor : EditorWindow
             });
         };
 
-        conditions.onRemoveCallback = (ReorderableList list) =>
+        conditions.onRemoveCallback = list => sharedConditions[list.index].references.ForEach(reference =>
         {
-            var toRemove = sharedConditions[list.index];
-            toRemove.references.ForEach(x =>
-            {
-                (var transition, var index) = x;
-                Undo.RegisterCompleteObjectUndo(transition, "Modify Transition Conditions");
-                var conditions = transition.conditions.ToList();
-                conditions.RemoveAt(index);
-                transition.conditions = conditions.ToArray();
-            });
-        };
-        
-        conditions.onChangedCallback = (ReorderableList list) => {
-            // Mark any serialized object as dirty if needed
-            EditorUtility.SetDirty(controller);
-        };
+            Undo.RegisterCompleteObjectUndo(reference.transition, "Modify Transition Conditions");
+
+            AnimatorCondition[] conditions = reference.transition.conditions;
+
+            Array.Copy(conditions, reference.index + 1, conditions, reference.index, conditions.Length - reference.index);
+        });
+
+        conditions.onChangedCallback = list => EditorUtility.SetDirty(controller);
 
         conditions.DoLayoutList();
     }
@@ -697,38 +705,39 @@ public class RATSMultiEditor : EditorWindow
         public VRCAvatarParameterDriver driver;
         public int index;
     }
-    
+
     struct TargetParameter
     {
         public VRC_AvatarParameterDriver.Parameter parameter;
-        public List<(VRCAvatarParameterDriver, int)> references;
+        public List<(VRCAvatarParameterDriver driver, int index)> references;
     }
 
     private ReorderableList parameters;
-    
+
     private void DrawParameterDriversTab()
     {
-        List<AnimatorState> states = Selection.objects.Where(x => x != null && x is AnimatorState s && s.behaviours.Any(x => x is VRCAvatarParameterDriver)).Cast<AnimatorState>().ToList();
-        
+        List<AnimatorState> states = Selection.objects
+            .OfType<AnimatorState>()
+            .Where(state => state.behaviours.Any(behaviour => behaviour is VRCAvatarParameterDriver))
+            .ToList();
+
         if (states.Count == 0)
         {
             GUILayout.Label("Please select one or more states with Parameter Drivers to start editing.", EditorStyles.centeredGreyMiniLabel);
             return;
         }
-        
-        List<TargetParameter> sharedDrivers = new List<TargetParameter>();
-        
-        var driverList = states.Select(s => (
-            s.behaviours.Where(x => x is VRCAvatarParameterDriver)
-                .Cast<VRCAvatarParameterDriver>()
-                .SelectMany(d => d.parameters.Zip(Enumerable.Range(0, d.parameters.Count), (p, i) => new SourceParameter()
-            {
-                parameter = p,
-                driver = d,
-                index = i
-            }))).ToList()).ToList();
-        
-        void ExtractParameters(List<List<SourceParameter>> parameterListList, List<TargetParameter> result, 
+
+        List<TargetParameter> sharedDrivers = new();
+
+        var driverList = states.Select(state => state.behaviours.OfType<VRCAvatarParameterDriver>()
+        .SelectMany(d => d.parameters.Zip(Enumerable.Range(0, d.parameters.Count), (p, i) => new SourceParameter()
+        {
+            parameter = p,
+            driver = d,
+            index = i
+        })).ToList()).ToList();
+
+        void ExtractParameters(List<List<SourceParameter>> parameterListList, List<TargetParameter> result,
             Func<VRC_AvatarParameterDriver.Parameter, VRC_AvatarParameterDriver.Parameter, bool> matchFunc,
             Func<VRC_AvatarParameterDriver.Parameter, VRC_AvatarParameterDriver.Parameter> transformFunc)
         {
@@ -747,10 +756,10 @@ public class RATSMultiEditor : EditorWindow
                 {
                     parameter = transformFunc(checkParameter),
                     references = parameterListList.Select(parameters =>
-                            {
-                                var sourceCondition = parameters.First(c => matchFunc(checkParameter, c.parameter));
-                                return (sourceCondition.driver, sourceCondition.index);
-                            }).ToList()
+                    {
+                        var sourceCondition = parameters.First(c => matchFunc(checkParameter, c.parameter));
+                        return (sourceCondition.driver, sourceCondition.index);
+                    }).ToList()
                 });
 
                 // Remove from all transitions (remove all that match all three properties)
@@ -764,12 +773,12 @@ public class RATSMultiEditor : EditorWindow
 
         // Check in order of specificity
         // Random
-        
+
         ExtractParameters(driverList, sharedDrivers,
             (p1, p2) => p1.type == p2.type && p1.type == VRC_AvatarParameterDriver.ChangeType.Random &&
                         p1.name == p2.name &&
                         ((controller.parameters.FirstOrDefault(x => x.name == p1.name)?
-                            .type == AnimatorControllerParameterType.Bool) 
+                            .type == AnimatorControllerParameterType.Bool)
                                 ? p1.chance == p2.chance
                                 : (p1.valueMin == p2.valueMin && p1.valueMax == p2.valueMax)),
             p => new VRC_AvatarParameterDriver.Parameter()
@@ -782,7 +791,7 @@ public class RATSMultiEditor : EditorWindow
                 valueMin = p.valueMin,
                 valueMax = p.valueMax
             });
-        
+
         ExtractParameters(driverList, sharedDrivers,
             (p1, p2) => p1.type == p2.type && p1.type == VRC_AvatarParameterDriver.ChangeType.Random &&
                         p1.name == p2.name,
@@ -791,7 +800,7 @@ public class RATSMultiEditor : EditorWindow
                 type = p.type,
                 name = p.name,
             });
-        
+
         ExtractParameters(driverList, sharedDrivers,
             (p1, p2) => p1.type == p2.type && p1.type == VRC_AvatarParameterDriver.ChangeType.Random,
             p => new VRC_AvatarParameterDriver.Parameter()
@@ -802,14 +811,14 @@ public class RATSMultiEditor : EditorWindow
         // Set
         ExtractParameters(driverList, sharedDrivers,
             (p1, p2) => p1.type == p2.type && p1.type == VRC_AvatarParameterDriver.ChangeType.Set &&
-                        p1.name == p2.name  && p1.value == p2.value,
+                        p1.name == p2.name && p1.value == p2.value,
             p => new VRC_AvatarParameterDriver.Parameter()
             {
                 type = p.type,
                 name = p.name,
                 value = p.value
             });
-        
+
         ExtractParameters(driverList, sharedDrivers,
             (p1, p2) => p1.type == p2.type && p1.type == VRC_AvatarParameterDriver.ChangeType.Set &&
                         p1.name == p2.name,
@@ -818,25 +827,25 @@ public class RATSMultiEditor : EditorWindow
                 type = p.type,
                 name = p.name,
             });
-        
+
         ExtractParameters(driverList, sharedDrivers,
             (p1, p2) => p1.type == p2.type && p1.type == VRC_AvatarParameterDriver.ChangeType.Set,
             p => new VRC_AvatarParameterDriver.Parameter()
             {
                 type = p.type,
             });
-        
+
         // Add
         ExtractParameters(driverList, sharedDrivers,
             (p1, p2) => p1.type == p2.type && p1.type == VRC_AvatarParameterDriver.ChangeType.Add &&
-                        p1.name == p2.name  && p1.value == p2.value,
+                        p1.name == p2.name && p1.value == p2.value,
             p => new VRC_AvatarParameterDriver.Parameter()
             {
                 type = p.type,
                 name = p.name,
                 value = p.value
             });
-        
+
         ExtractParameters(driverList, sharedDrivers,
             (p1, p2) => p1.type == p2.type && p1.type == VRC_AvatarParameterDriver.ChangeType.Add &&
                         p1.name == p2.name,
@@ -845,14 +854,14 @@ public class RATSMultiEditor : EditorWindow
                 type = p.type,
                 name = p.name,
             });
-        
+
         ExtractParameters(driverList, sharedDrivers,
             (p1, p2) => p1.type == p2.type && p1.type == VRC_AvatarParameterDriver.ChangeType.Add,
             p => new VRC_AvatarParameterDriver.Parameter()
             {
                 type = p.type,
             });
-        
+
         // Copy
         ExtractParameters(driverList, sharedDrivers,
             (p1, p2) => p1.type == p2.type && p1.type == VRC_AvatarParameterDriver.ChangeType.Copy &&
@@ -863,7 +872,7 @@ public class RATSMultiEditor : EditorWindow
                 source = p.source,
                 name = p.name
             });
-        
+
         ExtractParameters(driverList, sharedDrivers,
             (p1, p2) => p1.type == p2.type && p1.type == VRC_AvatarParameterDriver.ChangeType.Copy &&
                         p1.source == p2.source,
@@ -872,20 +881,20 @@ public class RATSMultiEditor : EditorWindow
                 type = p.type,
                 source = p.source
             });
-        
+
         ExtractParameters(driverList, sharedDrivers,
             (p1, p2) => p1.type == p2.type && p1.type == VRC_AvatarParameterDriver.ChangeType.Copy,
             p => new VRC_AvatarParameterDriver.Parameter()
             {
                 type = p.type,
             });
-        
+
         parameters ??= new ReorderableList(sharedDrivers, typeof(AnimatorCondition), false, true, true, true);
         parameters.list = sharedDrivers;
         parameters.drawElementCallback = (Rect rect, int index, bool isActive, bool isFocused) =>
         {
             if (controller == null) return;
-            
+
             VRC_AvatarParameterDriver.Parameter parameter = sharedDrivers[index].parameter;
             Rect typeRect = new Rect(rect.x, rect.y + 2, rect.width * 0.4f, EditorGUIUtility.singleLineHeight);
             Rect secondRect = new Rect(rect.x + rect.width * 0.42f, rect.y + 2, rect.width * 0.3f, EditorGUIUtility.singleLineHeight);
@@ -903,21 +912,21 @@ public class RATSMultiEditor : EditorWindow
                     Undo.RegisterCompleteObjectUndo(parameterDriver, "Modify Parameter Drivers");
                     var parameters = parameterDriver.parameters;
                     parameters[index].type = newType;
-                    
+
                     if (parameters[index].name == null)
                         parameters[index].name = controller.parameters.FirstOrDefault()?.name;
-                    
+
                     if (parameters[index].source == null)
                         parameters[index].source = controller.parameters.FirstOrDefault()?.name;
-                    
+
                     parameterDriver.parameters = parameters;
                 });
             }
-            
+
             // Get available parameters from the animator
             AnimatorControllerParameter[] parameters = controller.parameters;
             string[] paramNames = parameters.Select(p => p.name).ToArray();
-            
+
             switch (parameter.type)
             {
                 // Set/Add
@@ -966,10 +975,10 @@ public class RATSMultiEditor : EditorWindow
                                 parameters[index].value = newValue;
                                 driver.parameters = parameters;
                             });
-                        }   
+                        }
                     }
                     break;
-                
+
                 // Copy
                 case VRC_AvatarParameterDriver.ChangeType.Copy:
                     int currentSourceParamIndex = Array.FindIndex(parameters, p => p.name == parameter.source);
@@ -985,7 +994,7 @@ public class RATSMultiEditor : EditorWindow
                             driver.parameters = parameters;
                         });
                     }
-                    
+
                     int currentDestParamIndex = Array.FindIndex(parameters, p => p.name == parameter.name);
                     int newDestParamIndex = EditorGUI.Popup(thirdRect, currentDestParamIndex, paramNames);
                     if (newDestParamIndex != currentDestParamIndex && newDestParamIndex >= 0)
@@ -1000,7 +1009,7 @@ public class RATSMultiEditor : EditorWindow
                         });
                     }
                     break;
-                
+
                 // Random
                 case VRC_AvatarParameterDriver.ChangeType.Random:
                     int currentRandomParamIndex = Array.FindIndex(parameters, p => p.name == parameter.name);
@@ -1048,7 +1057,7 @@ public class RATSMultiEditor : EditorWindow
                                 driver.parameters = parameters;
                             });
                         }
-                        
+
                         float newRandomMaxValue = EditorGUI.FloatField(thirdRect2, parameter.valueMax);
                         if (newRandomMaxValue != parameter.valueMax)
                         {
@@ -1065,48 +1074,38 @@ public class RATSMultiEditor : EditorWindow
                     break;
             }
         };
-        
+
         parameters.elementHeight = EditorGUIUtility.singleLineHeight + 2;
-        parameters.drawHeaderCallback = (Rect rect) => {
-            EditorGUI.LabelField(rect, "Parameter Drivers");
-        };
-        
-        parameters.onAddCallback = (ReorderableList list) => {
-            states.ForEach(s =>
-            {
-                var driver = s.behaviours.Where(x => x is VRCAvatarParameterDriver).Cast<VRCAvatarParameterDriver>().Last();
-                Undo.RegisterCompleteObjectUndo(driver, "Modify Parameter Drivers");
-                driver.parameters = driver.parameters.Append(new VRC_AvatarParameterDriver.Parameter()
-                {
-                    type = VRC_AvatarParameterDriver.ChangeType.Add,
-                    name = controller.parameters.Length == 0 ? "" : controller.parameters[0].name,
-                }).ToList();
-            });
-        };
-        
-        parameters.onRemoveCallback = (ReorderableList list) =>
+        parameters.drawHeaderCallback = rect => EditorGUI.LabelField(rect, "Parameter Drivers");
+
+        parameters.onAddCallback = list => states.ForEach(state =>
         {
-            var toRemove = sharedDrivers[list.index];
-            toRemove.references.ForEach(x =>
+            VRCAvatarParameterDriver driver = state.behaviours.OfType<VRCAvatarParameterDriver>().Last();
+
+            Undo.RegisterCompleteObjectUndo(driver, "Modify Parameter Drivers");
+
+            driver.parameters.Add(new VRC_AvatarParameterDriver.Parameter()
             {
-                (var driver, var index) = x;
-                Undo.RegisterCompleteObjectUndo(driver, "Modify Parameter Drivers");
-                var parameters = driver.parameters.ToList();
-                parameters.RemoveAt(index);
-                driver.parameters = parameters.ToList();
+                type = VRC_AvatarParameterDriver.ChangeType.Add,
+                name = controller.parameters.Length == 0 ? "" : controller.parameters[0].name,
             });
-        };
-        
-        parameters.onChangedCallback = (ReorderableList list) => {
-            // Mark any serialized object as dirty if needed
-            EditorUtility.SetDirty(controller);
-        };
-        
+        });
+
+        parameters.onRemoveCallback = list => sharedDrivers[list.index].references.ForEach(reference =>
+        {
+            Undo.RegisterCompleteObjectUndo(reference.driver, "Modify Parameter Drivers");
+
+            reference.driver.parameters.RemoveAt(reference.index);
+        });
+
+        // Mark any serialized object as dirty if needed
+        parameters.onChangedCallback = list => EditorUtility.SetDirty(controller);
+
         parameters.DoLayoutList();
     }
 #endif
-    
-    private void DrawFloatField<T>(List<T> objects, Func<T, float> getter, Action<T, float> setter, string name) where T: Object
+
+    private void DrawFloatField<T>(List<T> objects, Func<T, float> getter, Action<T, float> setter, string name) where T : Object
     {
         using (new GUILayout.HorizontalScope())
         {
@@ -1125,11 +1124,11 @@ public class RATSMultiEditor : EditorWindow
         }
     }
 
-    private void DrawBoolField<T>(List<T> objects, Func<T, bool> getter, Action<T, bool> setter, string name) where T: Object
+    private void DrawBoolField<T>(List<T> objects, Func<T, bool> getter, Action<T, bool> setter, string name) where T : Object
     {
         using (new GUILayout.HorizontalScope())
         {
-            EditorGUILayout.LabelField(name,  GUILayout.Width(350f));
+            EditorGUILayout.LabelField(name, GUILayout.Width(350f));
             bool sharedValue = objects.All(x => getter(x) == getter(objects[0]));
             bool currentValue = sharedValue ? getter(objects[0]) : false;
             bool newValue = EditorGUILayout.Toggle(currentValue);
